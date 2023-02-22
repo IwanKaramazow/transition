@@ -1,0 +1,182 @@
+<!-- Based on https://github.com/chenglou/chenglou.github.io/blob/ae52e68cb3ef48f9c18af593f4ca25c3072d7e63/index.html#LL1 -->
+<html>
+  <head>
+    <style>
+      .tile {
+        position: relative;
+
+        display: flex;
+        align-items: center;
+        overflow: hidden;
+
+        width: 200px;
+        height: 20px;
+
+        padding: 10px 0;
+
+        border: 1px solid #d2d2d7;
+        border-radius: 6px;
+
+        background-color: rgba(0, 0, 0, 0.02);
+      }
+    </style>
+  </head>
+  <body style="display: flex; justify-content: center">
+    <div class="tile" id="tile1"></div>
+  </body>
+  <script>
+    // based on https://github.com/chenglou/chenglou.github.io/blob/ae52e68cb3ef48f9c18af593f4ca25c3072d7e63/index.html#LL1
+    "use strict";
+
+    // helpers
+    let scheduledRender = false;
+
+    function scheduleRender() {
+      if (scheduledRender) return;
+      scheduledRender = true;
+      requestAnimationFrame(function renderAndMaybeScheduleAnotherRender(now) {
+        scheduledRender = false;
+        if (render(now)) scheduleRender();
+      });
+    }
+
+    function spring(position, velocity = 0, stiffness = 290, damping = 30) {
+      return {
+        damping: damping,
+        stiffness: stiffness,
+        position: position,
+        destination: position,
+        velocity: velocity,
+      };
+    }
+
+    const msPerAnimationStep = 4;
+
+    function springStep(config) {
+      const { damping, stiffness, position, destination, velocity } = config;
+
+      const t = msPerAnimationStep / 1000; // convert to seconds for the physics equation
+
+      // for animations, dest is actually spring at rest. Current position is the spring's stretched/compressed state
+      const Fspring = -stiffness * (position - destination); // Spring stiffness, in kg / s^2
+      const Fdamper = -damping * velocity; // Damping, in kg / s
+      const a = Fspring + Fdamper; // a needs to be divided by mass, but we'll assume mass of 1. Adjust k and b to change spring curve instead
+      const newVelocity = velocity + a * t;
+      const newPosition = position + newVelocity * t;
+
+      config.position = newPosition;
+      config.velocity = newVelocity;
+    }
+
+    function springGoToEnd(config) {
+      config.position = config.destination;
+      config.velocity = 0;
+    }
+
+    function createDateNode(date) {
+      const node = document.createElement("div");
+      node.style.position = "absolute";
+      node.innerText = date.toLocaleDateString();
+      return node;
+    }
+
+    // state
+    let animatedUntil = null;
+
+    let date_origin = new Date();
+
+    let scrollOffset = spring(0);
+
+    let inputs = {
+      key: null,
+    };
+
+    // === events
+    window.addEventListener("keydown", (e) => {
+      inputs.key = e.code;
+      scheduleRender();
+    });
+
+    // === static DOM initialization
+    const dom_tile = document.getElementById("tile1");
+
+    // === static layout
+    const px_tileWidth = 202; // border left and right adds a 1px each… so 200 + 2px = 202px
+    const px_tilePadding = 10;
+
+    function render(now) {
+      // === step 1: batched DOM reads (to avoid accidental DOM read & write interleaving)
+
+      // === step 2: handle inputs-related state change
+
+      // "none" | "backward" | "forward
+      let movement =
+        inputs.key === "ArrowLeft"
+          ? "backward"
+          : inputs.key === "ArrowRight"
+          ? "forward"
+          : "none";
+
+      // === step 3: calculate new layout
+
+      scrollOffset.destination =
+        movement === "backward"
+          ? scrollOffset.destination - px_tileWidth
+          : movement === "forward"
+          ? scrollOffset.destination + px_tileWidth
+          : scrollOffset.destination;
+
+      // === step 4: run animation
+
+      let stillAnimating = false;
+
+      let newAnimatedUntil = animatedUntil ?? now;
+
+      const steps = Math.floor((now - newAnimatedUntil) / msPerAnimationStep); // How many physics steps do we need to run?
+      newAnimatedUntil += steps * msPerAnimationStep;
+
+      for (let i = 0; i < steps; i++) springStep(scrollOffset);
+
+      if (
+        Math.abs(scrollOffset.destination - scrollOffset.position) < 0.01 &&
+        Math.abs(scrollOffset.velocity) < 0.01
+      ) {
+        springGoToEnd(scrollOffset);
+      } else {
+        stillAnimating = true;
+      }
+
+      // === step 5: render. Batch DOM writes
+
+      // Wipe out the tile
+      while (dom_tile.firstChild) {
+        dom_tile.removeChild(dom_tile.firstChild);
+      }
+
+      let startIndex = Math.floor(scrollOffset.position / px_tileWidth);
+      let endIndex = (scrollOffset.position + px_tileWidth) / px_tileWidth;
+
+      for (let i = startIndex; i <= endIndex; i++) {
+        // compute the relevant date for the label.
+        const date = new Date(date_origin); // copy origin date;
+        date.setDate(date.getDate() + i);
+
+        const dom_dateLabel = document.createElement("div");
+        dom_dateLabel.style.position = "absolute";
+        const px_offset = i * px_tileWidth - scrollOffset.position;
+        dom_dateLabel.style.transform = `translateX(${px_offset + px_tilePadding}px)`; // prettier-ignore
+        dom_dateLabel.innerText = date.toLocaleDateString();
+        dom_tile.appendChild(dom_dateLabel);
+      }
+
+      // === step 6: update state & prepare for next frame
+      inputs.key = null;
+
+      animatedUntil = stillAnimating ? newAnimatedUntil : null;
+
+      return stillAnimating;
+    }
+
+    scheduleRender();
+  </script>
+</html>
