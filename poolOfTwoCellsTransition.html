@@ -1,0 +1,204 @@
+<html>
+  <head>
+    <style>
+      .tile {
+        width: 200px;
+        height: 20px;
+        border-radius: 6px;
+        border: 1px solid #d2d2d7;
+        background-color: rgba(0, 0, 0, 0.02);
+
+        overflow: hidden;
+
+        position: relative;
+
+        display: flex;
+
+        align-items: center;
+
+        padding: 10px;
+      }
+    </style>
+  </head>
+  <body style="display: flex; justify-content: center">
+    <div class="tile" id="tile1"></div>
+  </body>
+  <script>
+    "use strict";
+
+    // helpers
+    let scheduledRender = false;
+
+    function scheduleRender() {
+      if (scheduledRender) return;
+      scheduledRender = true;
+      requestAnimationFrame(function renderAndMaybeScheduleAnotherRender(now) {
+        scheduledRender = false;
+        if (render(now)) scheduleRender();
+      });
+    }
+
+    function spring(position, velocity = 0, stiffness = 290, damping = 30) {
+      return {
+        damping: damping,
+        stiffness: stiffness,
+        position: position,
+        destination: position,
+        velocity: velocity,
+      };
+    }
+
+    const msPerAnimationStep = 4;
+
+    function springStep(config) {
+      const { damping, stiffness, position, destination, velocity } = config;
+
+      const t = msPerAnimationStep / 1000; // convert to seconds for the physics equation
+
+      // for animations, dest is actually spring at rest. Current position is the spring's stretched/compressed state
+      const Fspring = -stiffness * (position - destination); // Spring stiffness, in kg / s^2
+      const Fdamper = -damping * velocity; // Damping, in kg / s
+      const a = Fspring + Fdamper; // a needs to be divided by mass, but we'll assume mass of 1. Adjust k and b to change spring curve instead
+      const newVelocity = velocity + a * t;
+      const newPosition = position + newVelocity * t;
+
+      config.position = newPosition;
+      config.velocity = newVelocity;
+    }
+
+    function springGoToEnd(config) {
+      config.position = config.destination;
+      config.velocity = 0;
+    }
+
+    function createDateNode(date, ix) {
+      const node = document.createElement("div");
+      node.style.position = "absolute";
+      node.innerText = date.toLocaleDateString();
+      return node;
+    }
+
+    // state
+    let animatedUntil = null;
+
+    let activeDate = new Date();
+
+    let inputs = {
+      key: null,
+    };
+
+    let data = [
+      {
+        date: new Date(),
+        x: spring(0),
+        node: createDateNode(new Date()),
+      },
+      {
+        date: new Date(),
+        x: spring(220),
+        node: createDateNode(new Date()),
+      },
+    ];
+
+    // === events
+    window.addEventListener("keydown", (e) => {
+      inputs.key = e.code;
+      scheduleRender();
+    });
+
+    // === static DOM initialization
+    const tile1DomNode = document.getElementById("tile1");
+
+    data.forEach(({ node }) => {
+      tile1DomNode.appendChild(node);
+    });
+
+    function render(now) {
+      // === step 1: batched DOM reads (to avoid accidental DOM read & write interleaving)
+
+      // === step 2: handle inputs-related state change
+
+      const [data1, data2] = data;
+
+      let movement =
+        inputs.key === "ArrowLeft"
+          ? "backward"
+          : inputs.key === "ArrowRight"
+          ? "forward"
+          : "none";
+
+      // === step 3: calculate new layout & state
+      if (movement === "backward") {
+        activeDate.setDate(activeDate.getDate() - 1);
+        if (data1.x.position <= 0 || data2.x.position >= 220) {
+          data1.x.destination = 220;
+          data2.x.destination = 0;
+
+          data2.x.position = -100;
+
+          data2.date.setDate(activeDate.getDate());
+        } else {
+          data2.x.destination = 220;
+          data1.x.destination = 0;
+
+          data1.x.position = -100;
+
+          data1.date.setDate(activeDate.getDate());
+        }
+      } else if (movement === "forward") {
+        activeDate.setDate(activeDate.getDate() + 1);
+        if (data1.x.position >= 0) {
+          data1.x.destination = -100;
+          data2.x.destination = 0;
+
+          data2.x.position = 220;
+          data2.date.setDate(activeDate.getDate());
+        } else {
+          data2.x.destination = -100;
+          data1.x.destination = 0;
+          if (data1.x.position <= 0) {
+            data1.x.position = 220;
+          }
+          data1.date.setDate(activeDate.getDate());
+        }
+      }
+
+      // === step 4: run animation
+      let stillAnimating = false;
+
+      let newAnimatedUntil = animatedUntil ?? now;
+      // How many physics steps do we need to run?
+      const steps = Math.floor((now - newAnimatedUntil) / msPerAnimationStep);
+      newAnimatedUntil += steps * msPerAnimationStep;
+
+      data.forEach(({ x }) => {
+        for (let i = 0; i < steps; i++) springStep(x);
+
+        if (
+          Math.abs(x.destination - x.position) < 0.01 &&
+          Math.abs(x.velocity) < 0.01
+        ) {
+          springGoToEnd(x);
+        } else {
+          stillAnimating = true;
+        }
+      });
+
+      // === step 5: render. Batch DOM writes
+      data1.node.style.transform = `translateX(${data1.x.position}px)`;
+      data2.node.style.transform = `translateX(${data2.x.position}px)`;
+
+      data1.node.innerText = data1.date.toLocaleDateString();
+      data2.node.innerText = data2.date.toLocaleDateString();
+
+      // === step 6: update state & prepare for next frame
+      inputs.key = null;
+
+      animatedUntil = stillAnimating ? newAnimatedUntil : null;
+
+      return stillAnimating;
+    }
+
+    scheduleRender();
+  </script>
+</html>
