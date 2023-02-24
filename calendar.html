@@ -1,0 +1,180 @@
+<!-- Based on https://github.com/chenglou/chenglou.github.io/blob/ae52e68cb3ef48f9c18af593f4ca25c3072d7e63/index.html#LL1 -->
+<!-- calendar -->
+<html>
+  <head>
+    <style>
+      body {
+        padding: 0;
+        margin: 0;
+        position: relative;
+      }
+
+      .sidebar {
+        background-color: #f7f7f7;
+        width: 200px;
+        height: 100vh;
+        position: absolute;
+      }
+
+      .divider {
+        position: absolute;
+        width: 1px;
+        background-color: #e5e5e5;
+        transform: translateX(200px);
+        height: 100vh;
+
+        cursor: col-resize;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="sidebar" id="sidebar"></div>
+    <div class="divider" id="divider"></div>
+  </body>
+  <script>
+    // based on https://github.com/chenglou/chenglou.github.io/blob/ae52e68cb3ef48f9c18af593f4ca25c3072d7e63/index.html#LL1
+    "use strict";
+
+    // helpers
+    let scheduledRender = false;
+
+    function scheduleRender() {
+      if (scheduledRender) return;
+      scheduledRender = true;
+      requestAnimationFrame(function renderAndMaybeScheduleAnotherRender(now) {
+        scheduledRender = false;
+        if (render(now)) scheduleRender();
+      });
+    }
+
+    function spring(position, velocity = 0, stiffness = 290, damping = 30) {
+      return {
+        damping: damping,
+        stiffness: stiffness,
+        position: position,
+        destination: position,
+        velocity: velocity,
+      };
+    }
+
+    const msPerAnimationStep = 4;
+
+    function springStep(config) {
+      const { damping, stiffness, position, destination, velocity } = config;
+
+      const t = msPerAnimationStep / 1000; // convert to seconds for the physics equation
+
+      // for animations, dest is actually spring at rest. Current position is the spring's stretched/compressed state
+      const Fspring = -stiffness * (position - destination); // Spring stiffness, in kg / s^2
+      const Fdamper = -damping * velocity; // Damping, in kg / s
+      const a = Fspring + Fdamper; // a needs to be divided by mass, but we'll assume mass of 1. Adjust k and b to change spring curve instead
+      const newVelocity = velocity + a * t;
+      const newPosition = position + newVelocity * t;
+
+      config.position = newPosition;
+      config.velocity = newVelocity;
+    }
+
+    function springGoToEnd(config) {
+      config.position = config.destination;
+      config.velocity = 0;
+    }
+
+    // state
+    let animatedUntil = null;
+
+    let px_sidebarWidth = 200;
+
+    let inputs = {
+      // See https://github.com/chenglou/chenglou.github.io/blob/ae52e68cb3ef48f9c18af593f4ca25c3072d7e63/index.html#LL147C3-L147C40
+      // Can't read cursor state on page window
+      pointer: { x: -Infinity, y: -Infinity },
+      // "down" | "up"
+      pointerState: "up",
+    };
+
+    let sidebarDragged = null;
+
+    // === events
+    window.addEventListener("keydown", (e) => {
+      inputs.key = e.code;
+      scheduleRender();
+    });
+
+    window.addEventListener("mousemove", (e) => {
+      // pageX/Y coordinates are relative to the top left corner of the whole rendered page
+      inputs.pointer.x = e.pageX;
+      inputs.pointer.y = e.pageY;
+      scheduleRender();
+    });
+
+    window.addEventListener("pointerdown", (e) => {
+      inputs.pointerState = "down";
+      scheduleRender();
+    });
+
+    window.addEventListener("pointerup", (e) => {
+      inputs.pointerState = "up";
+      scheduleRender();
+    });
+
+    // === static DOM initialization
+    const sidebar = document.getElementById("sidebar");
+    const divider = document.getElementById("divider");
+
+    // === static layout
+
+    function render(now) {
+      const { pointer } = inputs;
+
+      // === step 1: batched DOM reads (to avoid accidental DOM read & write interleaving)
+
+      // TODO: document why we need to use documentElement.clientWidth/Height
+      const px_windowWidth = document.documentElement.clientWidth;
+      const px_windowHeight = document.documentElement.clientHeight;
+
+      // === step 2: handle inputs-related state change
+      let draggedSidebarDivider;
+
+      if (
+        inputs.pointerState === "down" &&
+        pointer.x <= px_sidebarWidth + 2 &&
+        pointer.x >= px_sidebarWidth - 2
+      ) {
+        sidebarDragged = true;
+      } else if (inputs.pointerState === "up") {
+        sidebarDragged = false;
+      }
+
+      // === step 3: calculate new layout & cursor
+      let cursor = "auto";
+
+      let px_newSidebarWidth = px_sidebarWidth;
+      if (sidebarDragged) {
+        px_newSidebarWidth = Math.max(pointer.x, 200);
+        px_newSidebarWidth = Math.min(px_newSidebarWidth, 600);
+
+        cursor = "col-resize";
+      }
+
+      // === step 4: run animation
+      let stillAnimating = false;
+
+      let newAnimatedUntil = animatedUntil ?? now;
+
+      // === step 5: render. Batch DOM writes
+      sidebar.style.width = px_newSidebarWidth + "px";
+      divider.style.transform = `translateX(${px_newSidebarWidth}px)`;
+
+      document.body.style.cursor = cursor;
+
+      // === step 6: update state & prepare for next frame
+
+      px_sidebarWidth = px_newSidebarWidth;
+
+      animatedUntil = stillAnimating ? newAnimatedUntil : null;
+
+      return stillAnimating;
+    }
+  </script>
+</html>
